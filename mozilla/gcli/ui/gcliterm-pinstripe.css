@@ -1,13 +1,9 @@
 
 .gcliterm-input-node,
 .gcliterm-complete-node {
-  font: 11px Menlo, Monaco, monospace;
+  font-size: 11px;
 }
 
 .gcliterm-complete-node {
   padding-top: 6px !important;
-}
-
-.gcli-out-shortcut {
-  font-family: Menlo, Monaco, monospace;
 }
