@@ -2,4 +2,9 @@
 .gcliterm-input-node,
 .gcliterm-complete-node {
   font-size: 12px;
+  font-family: Consolas, Inconsolata, "Courier New", monospace;
+}
+
+.gcli-out-shortcut {
+  font-family: Consolas, Inconsolata, "Courier New", monospace;
 }

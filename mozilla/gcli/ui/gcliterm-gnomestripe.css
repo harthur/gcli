@@ -1,5 +1,10 @@
 
 .gcliterm-input-node,
 .gcliterm-complete-node {
+  font-family: monospace;
   font-size: 12px;
+}
+
+.gcli-out-shortcut {
+  font-family: monospace;
 }

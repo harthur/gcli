@@ -85,7 +85,6 @@
   color: #666;
   cursor: pointer;
   vertical-align: bottom;
-  font-family: monospace;
 }
 
 .gcli-out-shortcut:before {
@@ -104,7 +103,6 @@
 .gcliterm-complete-node,
 .gcliterm-display {
   direction: ltr;
-  font-family: monospace;
 }
 
 /*
