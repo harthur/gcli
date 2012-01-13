@@ -22,6 +22,9 @@ function main() {
   else if (args[2] === 'firefox') {
     buildFirefox(args[3]);
   }
+  else if (args[2] === 'test') {
+    test();
+  }
   else {
     console.error('Error: Unknown target: \'' + args[2] + '\'');
     process.exit(1);
@@ -37,21 +40,18 @@ function main() {
 function buildStandard() {
   console.log('Building standard outputs to built/gcli[-uncompressed].js');
 
-  if (!path.existsSync(gcliHome + '/built')) {
-    fs.mkdirSync(gcliHome + '/built', 0755);
-  }
-
+  copy.mkdirSync(gcliHome + '/built', 0755);
   var project = copy.createCommonJsProject({
     roots: [ gcliHome + '/lib' ]
   });
   var sources = copy.createDataObject();
 
   copy({
-    source: copy.source.commonjs({
+    source: {
       project: project,
       // This list of dependencies should be the same as in index.html
       require: [ 'gcli/index', 'demo/index', 'gclitest/index' ]
-    }),
+    },
     filter: copy.filter.moduleDefines,
     dest: sources
   });
@@ -71,7 +71,7 @@ function buildStandard() {
   if (project.getDependencyGraphML) {
     copy({
       source: { value:project.getDependencyGraphML() },
-      dest: 'built/gcli.graphml',
+      dest: 'built/gcli.graphml'
     });
   }
 
@@ -106,12 +106,7 @@ function buildFirefox(destDir) {
   console.log('Building Firefox outputs to ' + (destDir || 'built/ff') + '.\n');
 
   if (!destDir) {
-    if (!path.existsSync(gcliHome + '/built')) {
-      fs.mkdirSync(gcliHome + '/built', 0755);
-    }
-    if (!path.existsSync(gcliHome + '/built/ff')) {
-      fs.mkdirSync(gcliHome + '/built/ff', 0755);
-    }
+    copy.mkdirSync(gcliHome + '/built/ff', 0755);
   }
 
   var jsmDir = '/browser/devtools/webconsole';
@@ -119,7 +114,7 @@ function buildFirefox(destDir) {
   var pinCssDir = '/browser/themes/pinstripe/devtools';
   var gnomeCssDir = '/browser/themes/gnomestripe/devtools';
   var propsDir = '/browser/locales/en-US/chrome/browser/devtools';
-  var testDir = '/browser/devtools/webconsole/test/browser';
+  var testDir = '/browser/devtools/webconsole/test';
 
   if (destDir) {
     var fail = false;
@@ -149,14 +144,15 @@ function buildFirefox(destDir) {
   }
 
   var project = copy.createCommonJsProject({
-    roots: [ gcliHome + '/mozilla', gcliHome + '/lib' ],
-    ignores: [
-      'text!gcli/ui/inputter.css',
-      'text!gcli/ui/menu.css',
-      'text!gcli/ui/arg_fetch.css',
-      'text!gcli/commands/help.css'
-    ]
+    roots: [ gcliHome + '/mozilla', gcliHome + '/lib' ]
   });
+
+  var ignoreFilter = createIgnoreFilter([
+    'gcli/ui/inputter.css',
+    'gcli/ui/menu.css',
+    'gcli/ui/arg_fetch.css',
+    'gcli/commands/help.css'
+  ]);
 
   // Package the JavaScript
   copy({
@@ -164,14 +160,11 @@ function buildFirefox(destDir) {
       'mozilla/build/prefix-gcli.jsm',
       'mozilla/build/console.js',
       copy.getMiniRequire(),
-      copy.source.commonjs({
-        project: project,
-        // This list of dependencies should be the same as in suffix-gcli.jsm
-        require: [ 'gcli/index' ]
-      }),
+      // This list of dependencies should be the same as in suffix-gcli.jsm
+      { project: project, require: [ 'gcli/index' ] },
       'mozilla/build/suffix-gcli.jsm'
     ],
-    filter: copy.filter.moduleDefines,
+    filter: [ ignoreFilter, copy.filter.moduleDefines ],
     dest: (destDir ? destDir + jsmDir : 'built/ff') + '/gcli.jsm'
   });
 
@@ -179,13 +172,8 @@ function buildFirefox(destDir) {
   project.assumeAllFilesLoaded();
   var sources = copy.createDataObject();
   copy({
-    source: [
-      copy.source.commonjs({
-        project: project,
-        // This list of dependencies should be the same as in gclitest/index.js
-        require: [ 'gclitest/suite' ]
-      })
-    ],
+    // This list of dependencies should be the same as in suffix-test.js
+    source: { project: project, require: [ 'gclitest/index' ] },
     filter: copy.filter.moduleDefines,
     dest: sources
   });
@@ -262,12 +250,28 @@ function buildFirefox(destDir) {
 
   // Package the i18n strings
   copy({
-    source: 'lib/gcli/nls/strings.js',
+    source: [ 'lib/gcli/nls/strings.js', 'mozilla/gcli/commands/strings.js' ],
     filter: tweakI18nStrings,
     dest: (destDir ? destDir + propsDir : 'built/ff') + '/gcli.properties'
   });
+}
 
-  console.log(project.report());
+/**
+ * Sometimes we want to exclude modules from the output.
+ * This replaces the contents of a named set of modules with an empty string.
+ */
+function createIgnoreFilter(ignoredModules) {
+  var filter = function(data, location) {
+    function checkIgnored(ignoredModule) {
+      return location.path === ignoredModule;
+    }
+    if (location != null && ignoredModules.some(checkIgnored)) {
+      return '';
+    }
+    return data;
+  };
+  filter.onRead = true;
+  return filter;
 }
 
 /**
@@ -289,7 +293,7 @@ function tweakIndex(data) {
  * this.
  * See lib/gcli/nls/strings.js for an example
  */
-var outline = /root: {([^}]*)}/;
+var outline = /root: {([^}]*)}/g;
 
 /**
  * Regex to match a set of single line comments followed by a name:value
@@ -304,15 +308,19 @@ var singleString = /((\s*\/\/.*\n)+)\s*([A-z.]+):\s*'(.*)',?\n/g;
  */
 function tweakI18nStrings(data) {
   // Rip off the CommonJS header/footer
-  var results = outline.exec(data);
-  if (!results) {
+  var output = '';
+  data.replace(outline, function(m, inner) {
+    // Remove the trailing spaces
+    output += inner.replace(/ *$/, '');
+  });
+
+  if (output === '') {
     console.error('Mismatch in lib/gcli/nls/strings.js');
     process.exit(1);
   }
-  // Remove the trailing spaces
-  var data = results[1].replace(/ *$/, '');
+
   // Convert each of the string definitions
-  data = data.replace(singleString, function(m, note, x, name, value) {
+  output = output.replace(singleString, function(m, note, x, name, value) {
     note = note.replace(/\n? *\/\/ */g, ' ')
                .replace(/^ /, '')
                .replace(/\n$/, '');
@@ -333,7 +341,7 @@ function tweakI18nStrings(data) {
     '# You want to make that choice consistent across the developer tools.\n' +
     '# A good criteria is the language in which you\'d find the best\n' +
     '# documentation on web development on the web.\n' +
-    '\n' + data;
+    '\n' + output;
 }
 
 /**
@@ -365,7 +373,7 @@ function removeNonMozPrefixes(data) {
  */
 function createUndefineFunction(project) {
   // This is slightly evil because it digs into the guts of a project
-  var modules = Object.keys(project.currentFiles);
+  var modules = Object.keys(project.currentModules);
   var undefine = '\nfunction undefine() {\n';
   modules.forEach(function(module) {
     undefine += '  delete define.modules[\'' + module + '\'];\n';
@@ -376,6 +384,37 @@ function createUndefineFunction(project) {
   });
   undefine += '}\n';
   return { value: undefine };
+}
+
+/**
+ * Run the test suite inside node
+ */
+function test() {
+  var requirejs = require('./scripts/r.js');
+
+  requirejs.config({
+    nodeRequire: require,
+    paths: { 'text': 'scripts/text', 'i18n': 'scripts/i18n' },
+    packagePaths: {
+      'lib': [
+        { name: 'gcli', main: 'index', lib: '.' },
+        { name: 'test', main: 'index', lib: '.' },
+        { name: 'gclitest', main: 'index', lib: '.' },
+        { name: 'demo', main: 'index', lib: '.' }
+      ]
+    }
+  });
+
+  require('jsdom').jsdom.env({
+    html: fs.readFileSync(gcliHome + '/index.html').toString(),
+    src: [
+      fs.readFileSync(gcliHome + '/scripts/html5-shim.js').toString()
+    ],
+    features: {
+      QuerySelector: true
+    },
+    done: requirejs('gclitest/nodeIndex').run
+  });
 }
 
 // Now everything is defined properly, start working
